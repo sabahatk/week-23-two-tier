@@ -20,9 +20,8 @@ resource "aws_subnet" "publicA" {
 }
 
 resource "aws_subnet" "publicB" {
-  vpc_id     = aws_vpc.TF_VPC.id
-  cidr_block = "10.0.2.0/24"
-  #assign_ipv6_address_on_creation = true
+  vpc_id                  = aws_vpc.TF_VPC.id
+  cidr_block              = "10.0.2.0/24"
   map_public_ip_on_launch = true
 
   tags = {
@@ -31,9 +30,9 @@ resource "aws_subnet" "publicB" {
 }
 
 resource "aws_subnet" "privateA" {
-  vpc_id     = aws_vpc.TF_VPC.id
-  cidr_block = "10.0.3.0/24"
-  #assign_ipv6_address_on_creation = true
+  vpc_id                  = aws_vpc.TF_VPC.id
+  cidr_block              = "10.0.3.0/24"
+  map_public_ip_on_launch = false
 
   tags = {
     Name = "Private Subnet A"
@@ -41,9 +40,9 @@ resource "aws_subnet" "privateA" {
 }
 
 resource "aws_subnet" "privateB" {
-  vpc_id     = aws_vpc.TF_VPC.id
-  cidr_block = "10.0.4.0/24"
-  #assign_ipv6_address_on_creation = true
+  vpc_id                  = aws_vpc.TF_VPC.id
+  cidr_block              = "10.0.4.0/24"
+  map_public_ip_on_launch = false
 
   tags = {
     Name = "Private Subnet B"
@@ -61,7 +60,21 @@ resource "aws_route_table" "TF_RT" {
 
 
   tags = {
-    Name = "Terraform Route Table"
+    Name = "Public Terraform Route Table"
+  }
+}
+
+resource "aws_route_table" "private_TF_RT" {
+  vpc_id = aws_vpc.TF_VPC.id
+
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat_gw.id
+  }
+
+
+  tags = {
+    Name = "Private Terraform Route Table"
   }
 }
 
@@ -75,14 +88,7 @@ resource "aws_internet_gateway" "tf_gw" {
   }
 }
 
-/******** Routes **********
-
-resource "aws_route_table_association" "IGW_route" {
-  cidr_block     = "0.0.0.0/0"
-  gateway_id     = aws_internet_gateway.tf_gw.id
-  route_table_id = aws_route_table.TF_RT.id
-}
-*/
+/******** Routes ***********/
 
 resource "aws_route_table_association" "publicA_route" {
   subnet_id      = aws_subnet.publicA.id
@@ -94,6 +100,15 @@ resource "aws_route_table_association" "publicB_route" {
   route_table_id = aws_route_table.TF_RT.id
 }
 
+resource "aws_route_table_association" "privateA_route" {
+  subnet_id      = aws_subnet.privateA.id
+  route_table_id = aws_route_table.private_TF_RT.id
+}
+
+resource "aws_route_table_association" "privateB_route" {
+  subnet_id      = aws_subnet.privateB.id
+  route_table_id = aws_route_table.private_TF_RT.id
+}
 
 
 /*********** Instances *********/
@@ -156,8 +171,33 @@ resource "aws_security_group" "TF_SG" {
   }
 }
 
+resource "aws_security_group" "DB_SG" {
+  name        = var.db_sg_name
+  description = var.db_sg_name
+  vpc_id      = aws_vpc.TF_VPC.id
+
+  ingress {
+    description = var.ssh_desc
+    from_port   = var.ssh_port
+    to_port     = var.ssh_port
+    protocol    = var.protocol_tcp
+    cidr_blocks = var.cidr_block
+  }
+
+  egress {
+    from_port   = var.outbound_port
+    to_port     = var.outbound_port
+    protocol    = var.protocol_outbound
+    cidr_blocks = var.cidr_block
+  }
+
+  tags = {
+    Name = var.sg_tag
+  }
+}
+
 /********** RDS Instance *********/
-resource "aws_db_instance" "default" {
+resource "aws_db_instance" "mysql_db" {
   allocated_storage    = 10
   db_name              = "mydb"
   engine               = "mysql"
@@ -166,8 +206,9 @@ resource "aws_db_instance" "default" {
   username             = "RDS"
   password             = "RDSPassword"
   parameter_group_name = "default.mysql8.0"
-  skip_final_snapshot  = true
-  db_subnet_group_name = aws_db_subnet_group.subnet_group.name
+  #skip_final_snapshot  = true
+  db_subnet_group_name   = aws_db_subnet_group.subnet_group.name
+  vpc_security_group_ids = [aws_security_group.DB_SG.id]
 }
 
 /********* Subnet Group *********/
@@ -178,4 +219,25 @@ resource "aws_db_subnet_group" "subnet_group" {
   tags = {
     Name = "My DB subnet group"
   }
+}
+
+/*********** NAT Gateway *********/
+resource "aws_nat_gateway" "nat_gw" {
+  allocation_id = aws_eip.nat_eip.id
+  subnet_id     = aws_subnet.publicA.id
+
+  tags = {
+    Name = "Terraform NAT Gateway"
+  }
+
+  # To ensure proper ordering, it is recommended to add an explicit dependency
+  # on the Internet Gateway for the VPC.
+  depends_on = [aws_eip.nat_eip]
+}
+
+/******* Elastic IP *********/
+resource "aws_eip" "nat_eip" {
+  # = aws_instance.web.id
+  domain     = "vpc"
+  depends_on = [aws_internet_gateway.tf_gw]
 }
