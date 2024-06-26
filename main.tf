@@ -11,7 +11,6 @@ resource "aws_vpc" "TF_VPC" {
 resource "aws_subnet" "publicA" {
   vpc_id     = aws_vpc.TF_VPC.id
   cidr_block = "10.0.1.0/24"
-  #assign_ipv6_address_on_creation = true
   map_public_ip_on_launch = true
 
   tags = {
@@ -206,7 +205,6 @@ resource "aws_db_instance" "mysql_db" {
   username             = "RDS"
   password             = "RDSPassword"
   parameter_group_name = "default.mysql8.0"
-  #skip_final_snapshot  = true
   db_subnet_group_name   = aws_db_subnet_group.subnet_group.name
   vpc_security_group_ids = [aws_security_group.DB_SG.id]
 }
@@ -237,7 +235,6 @@ resource "aws_nat_gateway" "nat_gw" {
 
 /******* Elastic IP *********/
 resource "aws_eip" "nat_eip" {
-  # = aws_instance.web.id
   domain     = "vpc"
   depends_on = [aws_internet_gateway.tf_gw]
 }
